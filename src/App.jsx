@@ -1,19 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx'
-
-const STORAGE_KEY = 'rebella_sold_list'
-
-function loadSoldList() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-  } catch {
-    return []
-  }
-}
-
-function saveSoldList(list) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
-}
+import { supabase } from './supabase'
 
 function formatPrice(value) {
   if (value == null || isNaN(value)) return '—'
@@ -56,7 +43,6 @@ function useDebounce(value, delay) {
 function BookCard({ book, soldCount, onSell }) {
   const normalStock = book['normál készlet'] ?? 0
   const akcioStock = book['akciós készlet'] ?? 0
-  // Sold copies reduce normal stock first, then akcio
   const normalRemaining = Math.max(0, normalStock - soldCount)
   const akcioRemaining = soldCount > normalStock
     ? Math.max(0, akcioStock - (soldCount - normalStock))
@@ -120,9 +106,7 @@ function BookCard({ book, soldCount, onSell }) {
           Eladva
         </button>
         {soldCount > 0 && (
-          <span className="text-sm text-gray-500">
-            {soldCount} db eladva
-          </span>
+          <span className="text-sm text-gray-500">{soldCount} db eladva</span>
         )}
       </div>
     </div>
@@ -157,10 +141,10 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
 
       {/* Mobile cards */}
       <div className="sm:hidden flex flex-col gap-3">
-        {soldList.map((item, i) => (
-          <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-100 p-4">
-            <p className="font-bold text-gray-900">{item['Terméknév']}</p>
-            <p className="text-sm text-gray-600">{item['szerző']}</p>
+        {soldList.map((item) => (
+          <div key={item.id} className="bg-white rounded-lg shadow-sm border border-gray-100 p-4">
+            <p className="font-bold text-gray-900">{item.termeknev}</p>
+            <p className="text-sm text-gray-600">{item.szerzo}</p>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
               <span>Eredeti: {formatPrice(item.fogy_ar)}</span>
               <span>Kedv.: {Math.round((item.kedvezmeny_szazalek ?? 0) * 100)}%</span>
@@ -168,7 +152,7 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
             </div>
             <p className="text-xs text-gray-400 mt-1">{formatSoldDate(item.eladva_datum)}</p>
             <button
-              onClick={() => onUndo(i)}
+              onClick={() => onUndo(item.id)}
               className="mt-2 text-sm text-red-600 hover:text-red-800"
             >
               Visszavonás
@@ -192,17 +176,17 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
             </tr>
           </thead>
           <tbody>
-            {soldList.map((item, i) => (
-              <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="py-3 pr-4 font-medium text-gray-900">{item['Terméknév']}</td>
-                <td className="py-3 pr-4 text-gray-600">{item['szerző']}</td>
+            {soldList.map((item) => (
+              <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-3 pr-4 font-medium text-gray-900">{item.termeknev}</td>
+                <td className="py-3 pr-4 text-gray-600">{item.szerzo}</td>
                 <td className="py-3 pr-4 text-right text-gray-700">{formatPrice(item.fogy_ar)}</td>
                 <td className="py-3 pr-4 text-right text-gray-700">{Math.round((item.kedvezmeny_szazalek ?? 0) * 100)}%</td>
                 <td className="py-3 pr-4 text-right font-medium text-gray-900">{formatPrice(item.kedvezmenyes_ar)}</td>
                 <td className="py-3 pr-4 text-gray-500">{formatSoldDate(item.eladva_datum)}</td>
                 <td className="py-3">
                   <button
-                    onClick={() => onUndo(i)}
+                    onClick={() => onUndo(item.id)}
                     className="text-red-600 hover:text-red-800"
                   >
                     Visszavonás
@@ -220,13 +204,15 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
 export default function App() {
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
+  const [dbError, setDbError] = useState(null)
   const [error, setError] = useState(null)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState('search')
-  const [soldList, setSoldList] = useState(loadSoldList)
+  const [soldList, setSoldList] = useState([])
 
   const debouncedQuery = useDebounce(query, 300)
 
+  // Load Excel
   useEffect(() => {
     async function loadData() {
       try {
@@ -234,26 +220,51 @@ export default function App() {
         const buffer = await response.arrayBuffer()
         const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
         const ws = wb.Sheets['Aktuális készlet']
-        if (!ws) {
-          setError('A munkalap ("Aktuális készlet") nem található.')
-          return
-        }
-        const data = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null })
-        setBooks(data)
+        if (!ws) { setError('A munkalap ("Aktuális készlet") nem található.'); return }
+        setBooks(XLSX.utils.sheet_to_json(ws, { range: 1, defval: null }))
       } catch (e) {
         setError('Hiba az adatok betöltésekor: ' + e.message)
-      } finally {
-        setLoading(false)
       }
     }
     loadData()
   }, [])
 
+  // Load sold list from Supabase
+  useEffect(() => {
+    async function fetchSold() {
+      const { data, error } = await supabase
+        .from('sold_books')
+        .select('*')
+        .order('eladva_datum', { ascending: false })
+      if (error) {
+        setDbError(error.message)
+      } else {
+        setSoldList(data)
+      }
+      setLoading(false)
+    }
+    fetchSold()
+  }, [])
+
+  // Real-time sync across devices
+  useEffect(() => {
+    const channel = supabase
+      .channel('sold_books_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sold_books' }, () => {
+        supabase
+          .from('sold_books')
+          .select('*')
+          .order('eladva_datum', { ascending: false })
+          .then(({ data }) => { if (data) setSoldList(data) })
+      })
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [])
+
   const soldCounts = useMemo(() => {
     const map = new Map()
     for (const item of soldList) {
-      const code = item['Termékkód']
-      map.set(code, (map.get(code) ?? 0) + 1)
+      map.set(item.termekkkod, (map.get(item.termekkkod) ?? 0) + 1)
     }
     return map
   }, [soldList])
@@ -270,45 +281,37 @@ export default function App() {
     })
   }, [debouncedQuery, books])
 
-  const handleSell = useCallback((book) => {
-    const entry = {
-      'Termékkód': book['Termékkód'],
-      'EAN': String(book['EAN'] ?? ''),
-      'szerző': book['szerző'],
-      'Terméknév': book['Terméknév'],
+  const handleSell = useCallback(async (book) => {
+    const { data, error } = await supabase.from('sold_books').insert({
+      termekkkod: book['Termékkód'],
+      ean: String(book['EAN'] ?? ''),
+      szerzo: book['szerző'],
+      termeknev: book['Terméknév'],
       fogy_ar: book['fogy.ár (5% áfás)'],
       kedvezmeny_szazalek: book['javasolt kedvezmény vevőknek'],
       kedvezmenyes_ar: book['javasolt kedvezményes, bolti áfás ár'],
       eladva_datum: new Date().toISOString(),
-    }
-    setSoldList((prev) => {
-      const next = [...prev, entry]
-      saveSoldList(next)
-      return next
-    })
+    }).select().single()
+    if (!error && data) setSoldList((prev) => [data, ...prev])
   }, [])
 
-  const handleUndo = useCallback((index) => {
-    setSoldList((prev) => {
-      const next = prev.filter((_, i) => i !== index)
-      saveSoldList(next)
-      return next
-    })
+  const handleUndo = useCallback(async (id) => {
+    const { error } = await supabase.from('sold_books').delete().eq('id', id)
+    if (!error) setSoldList((prev) => prev.filter((i) => i.id !== id))
   }, [])
 
   const handleExport = useCallback(() => {
     const headers = ['Termékkód', 'EAN', 'Szerző', 'Cím', 'Eredeti ár (Ft)', 'Kedvezmény %', 'Kedvezményes ár (Ft)', 'Eladás dátuma']
     const rows = soldList.map((item) => [
-      item['Termékkód'],
-      item['EAN'],
-      item['szerző'],
-      item['Terméknév'],
+      item.termekkkod,
+      item.ean,
+      item.szerzo,
+      item.termeknev,
       item.fogy_ar != null ? Math.round(item.fogy_ar) : '',
       item.kedvezmeny_szazalek != null ? Math.round(item.kedvezmeny_szazalek * 100) + '%' : '',
       item.kedvezmenyes_ar != null ? Math.round(item.kedvezmenyes_ar) : '',
       formatSoldDate(item.eladva_datum),
     ])
-
     const csvContent = [headers, ...rows]
       .map((row) => row.map((cell) => {
         const str = String(cell ?? '')
@@ -317,23 +320,19 @@ export default function App() {
           : str
       }).join(','))
       .join('\n')
-
-    const BOM = '﻿'
-    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const today = new Date().toISOString().split('T')[0]
     a.href = url
-    a.download = `rebella_eladott_konyvek_${today}.csv`
+    a.download = `rebella_eladott_konyvek_${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }, [soldList])
 
-  const handleClear = useCallback(() => {
-    if (window.confirm('Biztosan törölni szeretnéd az összes eladott könyvet?')) {
-      setSoldList([])
-      saveSoldList([])
-    }
+  const handleClear = useCallback(async () => {
+    if (!window.confirm('Biztosan törölni szeretnéd az összes eladott könyvet?')) return
+    const { error } = await supabase.from('sold_books').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    if (!error) setSoldList([])
   }, [])
 
   if (loading) {
@@ -344,10 +343,17 @@ export default function App() {
     )
   }
 
-  if (error) {
+  if (error || dbError) {
     return (
-      <div className="min-h-screen bg-[#FAFAF7] flex items-center justify-center">
-        <p className="text-red-600 text-lg">{error}</p>
+      <div className="min-h-screen bg-[#FAFAF7] flex items-center justify-center px-4">
+        <div className="text-center">
+          <p className="text-red-600 text-lg">{error || dbError}</p>
+          {dbError && (
+            <p className="text-gray-500 text-sm mt-2">
+              Ellenőrizd a Supabase beállításokat és futtasd le a tábla-létrehozó SQL-t.
+            </p>
+          )}
+        </div>
       </div>
     )
   }
@@ -361,9 +367,7 @@ export default function App() {
             <button
               onClick={() => setTab('search')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                tab === 'search'
-                  ? 'bg-[#C0392B] text-white'
-                  : 'text-gray-600 hover:bg-gray-100'
+                tab === 'search' ? 'bg-[#C0392B] text-white' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               Keresés
@@ -371,9 +375,7 @@ export default function App() {
             <button
               onClick={() => setTab('sold')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                tab === 'sold'
-                  ? 'bg-[#C0392B] text-white'
-                  : 'text-gray-600 hover:bg-gray-100'
+                tab === 'sold' ? 'bg-[#C0392B] text-white' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               Eladott könyvek ({soldList.length})
@@ -393,17 +395,12 @@ export default function App() {
               className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-900
                 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
             />
-
             <div className="mt-5 flex flex-col gap-4">
               {!debouncedQuery.trim() && (
-                <p className="text-center py-16 text-gray-400">
-                  Kezdj el gépelni egy könyv címét...
-                </p>
+                <p className="text-center py-16 text-gray-400">Kezdj el gépelni egy könyv címét...</p>
               )}
               {debouncedQuery.trim() && filtered.length === 0 && (
-                <p className="text-center py-16 text-gray-400">
-                  Nem található könyv.
-                </p>
+                <p className="text-center py-16 text-gray-400">Nem található könyv.</p>
               )}
               {filtered.map((book, i) => (
                 <BookCard
@@ -416,7 +413,6 @@ export default function App() {
             </div>
           </div>
         )}
-
         {tab === 'sold' && (
           <SoldTable
             soldList={soldList}
