@@ -484,6 +484,19 @@ function BookCard({ book, soldCount, onSell }) {
 }
 
 function SoldTable({ soldList, onUndo, onExport, onClear }) {
+  const [filterHouse, setFilterHouse] = useState('Összes')
+
+  // Build list of print houses that actually appear in sold books
+  const presentHouses = useMemo(() => {
+    const set = new Set(soldList.map(i => i.print_house).filter(Boolean))
+    return ['Összes', ...Array.from(set).sort()]
+  }, [soldList])
+
+  const filtered = useMemo(() =>
+    filterHouse === 'Összes' ? soldList : soldList.filter(i => i.print_house === filterHouse),
+    [soldList, filterHouse]
+  )
+
   if (soldList.length === 0) {
     return (
       <div className="text-center py-16 text-gray-400">
@@ -494,24 +507,42 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-3 mb-5">
-        <button
-          onClick={onExport}
-          className="text-sm font-medium px-4 py-2 rounded-lg bg-[#C0392B] text-white hover:bg-[#A93226] transition-colors"
+      {/* Filter + actions row */}
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <select
+          value={filterHouse}
+          onChange={e => setFilterHouse(e.target.value)}
+          className="px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-900
+            focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
         >
-          CSV letöltése
-        </button>
-        <button
-          onClick={onClear}
-          className="text-sm font-medium px-4 py-2 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 transition-colors"
-        >
-          Lista törlése
-        </button>
+          {presentHouses.map(ph => (
+            <option key={ph} value={ph}>{ph}</option>
+          ))}
+        </select>
+        <span className="text-sm text-gray-400">{filtered.length} tétel</span>
+        <div className="flex gap-3 ml-auto">
+          <button
+            onClick={() => onExport(filtered, filterHouse)}
+            className="text-sm font-medium px-4 py-2 rounded-lg bg-[#C0392B] text-white hover:bg-[#A93226] transition-colors"
+          >
+            CSV letöltése
+          </button>
+          <button
+            onClick={onClear}
+            className="text-sm font-medium px-4 py-2 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 transition-colors"
+          >
+            Lista törlése
+          </button>
+        </div>
       </div>
+
+      {filtered.length === 0 && (
+        <p className="text-center py-10 text-gray-400">Nincs eladott könyv ennél a kiadónál.</p>
+      )}
 
       {/* Mobile cards */}
       <div className="sm:hidden flex flex-col gap-3">
-        {soldList.map((item) => (
+        {filtered.map((item) => (
           <div key={item.id} className="bg-white rounded-lg shadow-sm border border-gray-100 p-4">
             <p className="font-bold text-gray-900">{item.termeknev}</p>
             <p className="text-sm text-gray-600">{item.szerzo}</p>
@@ -543,7 +574,7 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
             </tr>
           </thead>
           <tbody>
-            {soldList.map((item) => (
+            {filtered.map((item) => (
               <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-3 pr-4 font-medium text-gray-900">{item.termeknev}</td>
                 <td className="py-3 pr-4 text-gray-600">{item.szerzo}</td>
@@ -643,6 +674,7 @@ export default function App() {
       fogy_ar: book.fogy_ar,
       kedvezmeny_szazalek: book.kedvezmeny_szazalek,
       kedvezmenyes_ar: book.kedvezmenyes_ar,
+      print_house: book.print_house,
       eladva_datum: new Date().toISOString(),
     }).select().single()
     if (!error && data) setSoldList((prev) => [data, ...prev])
@@ -653,13 +685,14 @@ export default function App() {
     if (!error) setSoldList((prev) => prev.filter((i) => i.id !== id))
   }, [])
 
-  const handleExport = useCallback(() => {
-    const headers = ['Termékkód', 'EAN', 'Szerző', 'Cím', 'Eredeti ár (Ft)', 'Kedvezmény %', 'Kedvezményes ár (Ft)', 'Eladás dátuma']
-    const rows = soldList.map((item) => [
+  const handleExport = useCallback((list, filterHouse) => {
+    const headers = ['Termékkód', 'EAN', 'Szerző', 'Cím', 'Kiadó', 'Eredeti ár (Ft)', 'Kedvezmény %', 'Kedvezményes ár (Ft)', 'Eladás dátuma']
+    const rows = list.map((item) => [
       item.termekkkod,
       item.ean,
       item.szerzo,
       item.termeknev,
+      item.print_house ?? '',
       item.fogy_ar != null ? Math.round(item.fogy_ar) : '',
       item.kedvezmeny_szazalek != null ? Math.round(item.kedvezmeny_szazalek * 100) + '%' : '',
       item.kedvezmenyes_ar != null ? Math.round(item.kedvezmenyes_ar) : '',
@@ -674,11 +707,15 @@ export default function App() {
     const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
+    const today = new Date().toISOString().split('T')[0]
+    const housePart = filterHouse && filterHouse !== 'Összes'
+      ? '_' + filterHouse.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '')
+      : ''
     a.href = url
-    a.download = `rebella_eladott_konyvek_${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `rebella_eladott_konyvek${housePart}_${today}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [soldList])
+  }, [])
 
   const handleClear = useCallback(async () => {
     if (!window.confirm('Biztosan törölni szeretnéd az összes eladott könyvet?')) return
