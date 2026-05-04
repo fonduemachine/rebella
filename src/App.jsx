@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
 
 function formatPrice(value) {
@@ -10,13 +9,6 @@ function formatPrice(value) {
 function formatDiscount(value) {
   if (value == null || isNaN(value)) return '—'
   return Math.round(value * 100) + '%'
-}
-
-function formatDate(d) {
-  if (!d) return null
-  const date = d instanceof Date ? d : new Date(d)
-  if (isNaN(date.getTime())) return null
-  return date.toISOString().split('T')[0]
 }
 
 function formatSoldDate(iso) {
@@ -41,35 +33,34 @@ function useDebounce(value, delay) {
 }
 
 function BookCard({ book, soldCount, onSell }) {
-  const normalStock = book['normál készlet'] ?? 0
-  const akcioStock = book['akciós készlet'] ?? 0
+  const normalStock = book.normal_keszlet ?? 0
+  const akcioStock = book.akcio_keszlet ?? 0
   const normalRemaining = Math.max(0, normalStock - soldCount)
   const akcioRemaining = soldCount > normalStock
     ? Math.max(0, akcioStock - (soldCount - normalStock))
     : akcioStock
   const totalRemaining = normalRemaining + akcioRemaining
   const stock = getStockStatus(normalRemaining, akcioRemaining)
-  const priceExpiry = formatDate(book['árkötöttség lejár'])
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-4 sm:p-5">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-bold text-gray-900 leading-tight">
-            {book['Terméknév'] || 'Ismeretlen cím'}
+            {book.termeknev || 'Ismeretlen cím'}
           </h3>
-          <p className="text-gray-600 mt-1">{book['szerző'] || 'Ismeretlen szerző'}</p>
+          <p className="text-gray-600 mt-1">{book.szerzo || 'Ismeretlen szerző'}</p>
           <p className="text-xs text-gray-400 mt-1">
-            Kód: {book['Termékkód']} | EAN: {String(book['EAN'] ?? '')}
+            Kód: {book.termekkkod} | EAN: {book.ean ?? ''}
           </p>
         </div>
         <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
           <span className={`inline-block text-xs font-medium px-2.5 py-1 rounded-full ${stock.color}`}>
             {stock.label}
           </span>
-          {book['javasolt kedvezmény vevőknek'] != null && (
+          {book.kedvezmeny_szazalek != null && (
             <span className="inline-block text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
-              {formatDiscount(book['javasolt kedvezmény vevőknek'])} kedvezmény
+              {formatDiscount(book.kedvezmeny_szazalek)} kedvezmény
             </span>
           )}
         </div>
@@ -78,21 +69,17 @@ function BookCard({ book, soldCount, onSell }) {
       <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-2">
         <div>
           <p className="text-xs text-gray-500">Eredeti ár</p>
-          <p className="text-gray-700 line-through">
-            {formatPrice(book['fogy.ár (5% áfás)'])}
-          </p>
+          <p className="text-gray-700 line-through">{formatPrice(book.fogy_ar)}</p>
         </div>
         <div>
           <p className="text-xs text-gray-500">Kedvezményes ár</p>
-          <p className="text-xl font-semibold text-[#C0392B]">
-            {formatPrice(book['javasolt kedvezményes, bolti áfás ár'])}
-          </p>
+          <p className="text-xl font-semibold text-[#C0392B]">{formatPrice(book.kedvezmenyes_ar)}</p>
         </div>
       </div>
 
-      {priceExpiry && (
+      {book.arkototteg_lejar && (
         <p className="mt-3 text-sm text-amber-700">
-          ⚠️ Árkötöttség lejár: {priceExpiry}
+          ⚠️ Árkötöttség lejár: {book.arkototteg_lejar}
         </p>
       )}
 
@@ -151,10 +138,7 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
               <span>Ár: {formatPrice(item.kedvezmenyes_ar)}</span>
             </div>
             <p className="text-xs text-gray-400 mt-1">{formatSoldDate(item.eladva_datum)}</p>
-            <button
-              onClick={() => onUndo(item.id)}
-              className="mt-2 text-sm text-red-600 hover:text-red-800"
-            >
+            <button onClick={() => onUndo(item.id)} className="mt-2 text-sm text-red-600 hover:text-red-800">
               Visszavonás
             </button>
           </div>
@@ -185,10 +169,7 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
                 <td className="py-3 pr-4 text-right font-medium text-gray-900">{formatPrice(item.kedvezmenyes_ar)}</td>
                 <td className="py-3 pr-4 text-gray-500">{formatSoldDate(item.eladva_datum)}</td>
                 <td className="py-3">
-                  <button
-                    onClick={() => onUndo(item.id)}
-                    className="text-red-600 hover:text-red-800"
-                  >
+                  <button onClick={() => onUndo(item.id)} className="text-red-600 hover:text-red-800">
                     Visszavonás
                   </button>
                 </td>
@@ -204,7 +185,6 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
 export default function App() {
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
-  const [dbError, setDbError] = useState(null)
   const [error, setError] = useState(null)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState('search')
@@ -212,41 +192,32 @@ export default function App() {
 
   const debouncedQuery = useDebounce(query, 300)
 
-  // Load Excel
+  // Load books from Supabase
   useEffect(() => {
-    async function loadData() {
-      try {
-        const response = await fetch('/Rebella-Bakeszlet.xlsx')
-        const buffer = await response.arrayBuffer()
-        const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
-        const ws = wb.Sheets['Aktuális készlet']
-        if (!ws) { setError('A munkalap ("Aktuális készlet") nem található.'); return }
-        setBooks(XLSX.utils.sheet_to_json(ws, { range: 1, defval: null }))
-      } catch (e) {
-        setError('Hiba az adatok betöltésekor: ' + e.message)
-      }
-    }
-    loadData()
+    supabase
+      .from('books')
+      .select('*')
+      .order('termeknev', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) setError(error.message)
+        else setBooks(data)
+      })
   }, [])
 
   // Load sold list from Supabase
   useEffect(() => {
-    async function fetchSold() {
-      const { data, error } = await supabase
-        .from('sold_books')
-        .select('*')
-        .order('eladva_datum', { ascending: false })
-      if (error) {
-        setDbError(error.message)
-      } else {
-        setSoldList(data)
-      }
-      setLoading(false)
-    }
-    fetchSold()
+    supabase
+      .from('sold_books')
+      .select('*')
+      .order('eladva_datum', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) setError(error.message)
+        else setSoldList(data)
+        setLoading(false)
+      })
   }, [])
 
-  // Real-time sync across devices
+  // Real-time sync for sold books across devices
   useEffect(() => {
     const channel = supabase
       .channel('sold_books_changes')
@@ -272,24 +243,23 @@ export default function App() {
   const filtered = useMemo(() => {
     if (!debouncedQuery.trim()) return []
     const q = debouncedQuery.toLowerCase().trim()
-    return books.filter((b) => {
-      const title = (b['Terméknév'] || '').toLowerCase()
-      const author = (b['szerző'] || '').toLowerCase()
-      const code = String(b['Termékkód'] || '').toLowerCase()
-      const ean = String(b['EAN'] || '').toLowerCase()
-      return title.includes(q) || author.includes(q) || code.includes(q) || ean.includes(q)
-    })
+    return books.filter((b) =>
+      (b.termeknev || '').toLowerCase().includes(q) ||
+      (b.szerzo || '').toLowerCase().includes(q) ||
+      (b.termekkkod || '').toLowerCase().includes(q) ||
+      (b.ean || '').toLowerCase().includes(q)
+    )
   }, [debouncedQuery, books])
 
   const handleSell = useCallback(async (book) => {
     const { data, error } = await supabase.from('sold_books').insert({
-      termekkkod: book['Termékkód'],
-      ean: String(book['EAN'] ?? ''),
-      szerzo: book['szerző'],
-      termeknev: book['Terméknév'],
-      fogy_ar: book['fogy.ár (5% áfás)'],
-      kedvezmeny_szazalek: book['javasolt kedvezmény vevőknek'],
-      kedvezmenyes_ar: book['javasolt kedvezményes, bolti áfás ár'],
+      termekkkod: book.termekkkod,
+      ean: book.ean,
+      szerzo: book.szerzo,
+      termeknev: book.termeknev,
+      fogy_ar: book.fogy_ar,
+      kedvezmeny_szazalek: book.kedvezmeny_szazalek,
+      kedvezmenyes_ar: book.kedvezmenyes_ar,
       eladva_datum: new Date().toISOString(),
     }).select().single()
     if (!error && data) setSoldList((prev) => [data, ...prev])
@@ -316,10 +286,8 @@ export default function App() {
       .map((row) => row.map((cell) => {
         const str = String(cell ?? '')
         return str.includes(',') || str.includes('"') || str.includes('\n')
-          ? '"' + str.replace(/"/g, '""') + '"'
-          : str
-      }).join(','))
-      .join('\n')
+          ? '"' + str.replace(/"/g, '""') + '"' : str
+      }).join(',')).join('\n')
     const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -343,17 +311,10 @@ export default function App() {
     )
   }
 
-  if (error || dbError) {
+  if (error) {
     return (
       <div className="min-h-screen bg-[#FAFAF7] flex items-center justify-center px-4">
-        <div className="text-center">
-          <p className="text-red-600 text-lg">{error || dbError}</p>
-          {dbError && (
-            <p className="text-gray-500 text-sm mt-2">
-              Ellenőrizd a Supabase beállításokat és futtasd le a tábla-létrehozó SQL-t.
-            </p>
-          )}
-        </div>
+        <p className="text-red-600 text-lg text-center">{error}</p>
       </div>
     )
   }
@@ -402,11 +363,11 @@ export default function App() {
               {debouncedQuery.trim() && filtered.length === 0 && (
                 <p className="text-center py-16 text-gray-400">Nem található könyv.</p>
               )}
-              {filtered.map((book, i) => (
+              {filtered.map((book) => (
                 <BookCard
-                  key={book['Termékkód'] + '-' + i}
+                  key={book.id}
                   book={book}
-                  soldCount={soldCounts.get(book['Termékkód']) ?? 0}
+                  soldCount={soldCounts.get(book.termekkkod) ?? 0}
                   onSell={handleSell}
                 />
               ))}
