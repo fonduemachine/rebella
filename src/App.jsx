@@ -115,19 +115,13 @@ function ExcelUpload() {
   async function handleUpload() {
     if (!parsedBooks || parsedBooks.length === 0) return
     setUploading(true)
-    const house = parsedBooks[0].print_house
 
-    // Delete existing books for this print house first
-    const { error: delError } = await supabase
-      .from('books')
-      .delete()
-      .eq('print_house', house)
-    if (delError) { alert('Hiba törléskor: ' + delError.message); setUploading(false); return }
-
-    // Upload in batches of 50
+    // Upsert in batches of 50 — adds new books, updates existing ones
     const BATCH = 50
     for (let i = 0; i < parsedBooks.length; i += BATCH) {
-      const { error } = await supabase.from('books').insert(parsedBooks.slice(i, i + BATCH))
+      const { error } = await supabase
+        .from('books')
+        .upsert(parsedBooks.slice(i, i + BATCH), { onConflict: 'termekkkod,print_house' })
       if (error) { alert('Hiba feltöltéskor: ' + error.message); setUploading(false); return }
     }
 
@@ -185,7 +179,7 @@ function ExcelUpload() {
               {parsedBooks.length} könyvet találtunk a fájlban.
             </p>
             <p className="text-xs text-amber-700 mt-0.5">
-              A feltöltés felülírja az összes meglévő <strong>{parsedBooks[0].print_house}</strong> könyvet.
+              Új könyvek hozzáadódnak, meglévők frissülnek (<strong>{parsedBooks[0].print_house}</strong>).
             </p>
           </div>
         )}
