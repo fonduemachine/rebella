@@ -113,14 +113,15 @@ function AdminPanel() {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-900">Admin</h2>
         <button onClick={() => setUnlocked(false)} className="text-sm text-gray-500 hover:text-gray-700">
           Kilépés
         </button>
       </div>
       <ExcelUpload />
+      <ManualBookAdd />
     </div>
   )
 }
@@ -243,6 +244,142 @@ function ExcelUpload() {
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+const EMPTY_BOOK = {
+  termekkkod: '', ean: '', szerzo: '', termeknev: '',
+  normal_keszlet: '', akcio_keszlet: '',
+  fogy_ar: '', kedvezmeny_szazalek: '', kedvezmenyes_ar: '',
+  arkototteg_lejar: '', print_house: 'OpenBooks',
+}
+
+function ManualBookAdd() {
+  const [form, setForm] = useState(EMPTY_BOOK)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState(null)
+
+  function set(field, value) {
+    setForm(f => ({ ...f, [field]: value }))
+    setSaved(false)
+    setError(null)
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!form.termeknev.trim()) { setError('A könyv címe kötelező.'); return }
+    if (!form.termekkkod.trim()) { setError('A termékkód kötelező.'); return }
+    setSaving(true)
+    const { error } = await supabase.from('books').upsert({
+      termekkkod:          form.termekkkod.trim(),
+      ean:                 form.ean.trim() || null,
+      szerzo:              form.szerzo.trim() || null,
+      termeknev:           form.termeknev.trim(),
+      normal_keszlet:      Number(form.normal_keszlet) || 0,
+      akcio_keszlet:       Number(form.akcio_keszlet) || 0,
+      fogy_ar:             form.fogy_ar !== '' ? Number(form.fogy_ar) : null,
+      kedvezmeny_szazalek: form.kedvezmeny_szazalek !== '' ? Number(form.kedvezmeny_szazalek) / 100 : null,
+      kedvezmenyes_ar:     form.kedvezmenyes_ar !== '' ? Number(form.kedvezmenyes_ar) : null,
+      arkototteg_lejar:    form.arkototteg_lejar || null,
+      print_house:         form.print_house,
+    }, { onConflict: 'termekkkod,print_house' })
+    setSaving(false)
+    if (error) { setError(error.message); return }
+    setSaved(true)
+    setForm(EMPTY_BOOK)
+  }
+
+  const inputClass = "w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
+  const labelClass = "block text-sm font-medium text-gray-700 mb-1"
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+      <h3 className="font-bold text-gray-900 mb-1">Könyv manuális hozzáadása</h3>
+      <p className="text-sm text-gray-500 mb-5">
+        Tölts ki minden ismert mezőt. Ha a termékkód már létezik az adott kiadónál, frissül.
+      </p>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+
+        {/* Kiadó */}
+        <div>
+          <label className={labelClass}>Kiadó *</label>
+          <select value={form.print_house} onChange={e => set('print_house', e.target.value)} className={inputClass}>
+            {PRINT_HOUSES.map(ph => <option key={ph} value={ph}>{ph}</option>)}
+          </select>
+        </div>
+
+        {/* Cím + Szerző */}
+        <div>
+          <label className={labelClass}>Cím *</label>
+          <input type="text" value={form.termeknev} onChange={e => set('termeknev', e.target.value)} className={inputClass} placeholder="Könyv címe" />
+        </div>
+        <div>
+          <label className={labelClass}>Szerző</label>
+          <input type="text" value={form.szerzo} onChange={e => set('szerzo', e.target.value)} className={inputClass} placeholder="Pl. Kovács János; Kiss Éva" />
+        </div>
+
+        {/* Termékkód + EAN */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClass}>Termékkód *</label>
+            <input type="text" value={form.termekkkod} onChange={e => set('termekkkod', e.target.value)} className={inputClass} placeholder="pl. O15724734" />
+          </div>
+          <div>
+            <label className={labelClass}>EAN</label>
+            <input type="text" value={form.ean} onChange={e => set('ean', e.target.value)} className={inputClass} placeholder="9789..." />
+          </div>
+        </div>
+
+        {/* Készlet */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClass}>Normál készlet</label>
+            <input type="number" min="0" value={form.normal_keszlet} onChange={e => set('normal_keszlet', e.target.value)} className={inputClass} placeholder="0" />
+          </div>
+          <div>
+            <label className={labelClass}>Akciós készlet</label>
+            <input type="number" min="0" value={form.akcio_keszlet} onChange={e => set('akcio_keszlet', e.target.value)} className={inputClass} placeholder="0" />
+          </div>
+        </div>
+
+        {/* Árak */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClass}>Eredeti ár (Ft)</label>
+            <input type="number" min="0" value={form.fogy_ar} onChange={e => set('fogy_ar', e.target.value)} className={inputClass} placeholder="4999" />
+          </div>
+          <div>
+            <label className={labelClass}>Kedvezményes ár (Ft)</label>
+            <input type="number" min="0" value={form.kedvezmenyes_ar} onChange={e => set('kedvezmenyes_ar', e.target.value)} className={inputClass} placeholder="3999" />
+          </div>
+        </div>
+
+        {/* Kedvezmény % + Árkötöttség */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClass}>Kedvezmény %</label>
+            <input type="number" min="0" max="100" value={form.kedvezmeny_szazalek} onChange={e => set('kedvezmeny_szazalek', e.target.value)} className={inputClass} placeholder="20" />
+          </div>
+          <div>
+            <label className={labelClass}>Árkötöttség lejár</label>
+            <input type="date" value={form.arkototteg_lejar} onChange={e => set('arkototteg_lejar', e.target.value)} className={inputClass} />
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{error}</p>}
+        {saved && <p className="text-sm text-green-700 bg-green-50 rounded-lg px-4 py-3">✓ Könyv sikeresen mentve!</p>}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full py-3 rounded-lg bg-[#C0392B] text-white font-medium
+            hover:bg-[#A93226] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+        >
+          {saving ? 'Mentés...' : 'Könyv mentése'}
+        </button>
+      </form>
     </div>
   )
 }
