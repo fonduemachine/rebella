@@ -5,7 +5,7 @@ import { supabase } from './supabase'
 const ADMIN_PASSWORD = 'ReBella2026!'
 
 const PRINT_HOUSES = [
-  'Open Books',
+  'OpenBooks',
   'Pagony',
   'Gabo',
   '10:40',
