@@ -122,6 +122,7 @@ function AdminPanel() {
       </div>
       <ExcelUpload />
       <ManualBookAdd />
+      <InventoryExport />
     </div>
   )
 }
@@ -380,6 +381,84 @@ function ManualBookAdd() {
           {saving ? 'Mentés...' : 'Könyv mentése'}
         </button>
       </form>
+    </div>
+  )
+}
+
+function InventoryExport() {
+  const [printHouse, setPrintHouse] = useState('OpenBooks')
+  const [downloading, setDownloading] = useState(false)
+
+  async function handleDownload() {
+    setDownloading(true)
+    const { data, error } = await supabase
+      .from('books')
+      .select('*')
+      .eq('print_house', printHouse)
+      .order('termeknev', { ascending: true })
+
+    if (error) { alert('Hiba: ' + error.message); setDownloading(false); return }
+
+    const headers = ['Termékkód', 'EAN', 'Szerző', 'Cím', 'Kiadó', 'Normál készlet', 'Akciós készlet', 'Eredeti ár (Ft)', 'Kedvezmény %', 'Kedvezményes ár (Ft)', 'Árkötöttség lejár']
+    const rows = data.map(b => [
+      b.termekkkod,
+      b.ean ?? '',
+      b.szerzo ?? '',
+      b.termeknev ?? '',
+      b.print_house ?? '',
+      b.normal_keszlet ?? 0,
+      b.akcio_keszlet ?? 0,
+      b.fogy_ar != null ? Math.round(b.fogy_ar) : '',
+      b.kedvezmeny_szazalek != null ? Math.round(b.kedvezmeny_szazalek * 100) + '%' : '',
+      b.kedvezmenyes_ar != null ? Math.round(b.kedvezmenyes_ar) : '',
+      b.arkototteg_lejar ?? '',
+    ])
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => {
+        const s = String(cell ?? '')
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? '"' + s.replace(/"/g, '""') + '"' : s
+      }).join(',')).join('\n')
+
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const today = new Date().toISOString().split('T')[0]
+    const slug = printHouse.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '')
+    a.href = url
+    a.download = `rebella_keszlet_${slug}_${today}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    setDownloading(false)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+      <h3 className="font-bold text-gray-900 mb-1">Készlet letöltése</h3>
+      <p className="text-sm text-gray-500 mb-5">
+        Töltsd le egy kiadó teljes aktuális készletét CSV-ben.
+      </p>
+      <div className="flex flex-col gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Kiadó</label>
+          <select
+            value={printHouse}
+            onChange={e => setPrintHouse(e.target.value)}
+            className="w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900
+              focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
+          >
+            {PRINT_HOUSES.map(ph => <option key={ph} value={ph}>{ph}</option>)}
+          </select>
+        </div>
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          className="w-full py-3 rounded-lg bg-[#C0392B] text-white font-medium
+            hover:bg-[#A93226] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+        >
+          {downloading ? 'Letöltés...' : 'Készlet CSV letöltése'}
+        </button>
+      </div>
     </div>
   )
 }
