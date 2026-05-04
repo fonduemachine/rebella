@@ -1,7 +1,32 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
 
 const ADMIN_PASSWORD = 'ReBella2026!'
+
+function parseExcelBooks(buffer, printHouse) {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+  const ws = wb.Sheets['Aktuális készlet']
+  if (!ws) throw new Error('Nem található "Aktuális készlet" munkalap a fájlban.')
+  const rows = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null })
+  return rows.map(r => ({
+    termekkkod:          String(r['Termékkód'] ?? ''),
+    ean:                 r['EAN'] != null ? String(r['EAN']) : null,
+    szerzo:              r['szerző'] ?? null,
+    termeknev:           r['Terméknév'] ?? null,
+    akcio_keszlet:       r['akciós készlet'] ?? 0,
+    normal_keszlet:      r['normál készlet'] ?? 0,
+    fogy_ar:             r['fogy.ár (5% áfás)'] ?? null,
+    netto_ar:            r['nettó ár'] ?? null,
+    ob_netto_ar:         r['árréssel csökentett nettó ár (OB-nak fizetendő)'] ?? null,
+    kedvezmeny_szazalek: r['javasolt kedvezmény vevőknek'] ?? null,
+    kedvezmenyes_ar:     r['javasolt kedvezményes, bolti áfás ár'] ?? null,
+    arkototteg_lejar:    r['árkötöttség lejár'] instanceof Date
+                           ? r['árkötöttség lejár'].toISOString().split('T')[0]
+                           : null,
+    print_house:         printHouse,
+  }))
+}
 
 function AdminPanel() {
   const [input, setInput] = useState('')
@@ -53,15 +78,136 @@ function AdminPanel() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-bold text-gray-900">Admin</h2>
-        <button
-          onClick={() => setUnlocked(false)}
-          className="text-sm text-gray-500 hover:text-gray-700"
-        >
+        <button onClick={() => setUnlocked(false)} className="text-sm text-gray-500 hover:text-gray-700">
           Kilépés
         </button>
       </div>
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 text-center text-gray-400">
-        Hamarosan: könyv feltöltés és manuális hozzáadás.
+      <ExcelUpload />
+    </div>
+  )
+}
+
+function ExcelUpload() {
+  const [printHouse, setPrintHouse] = useState('OpenBooks')
+  const [parsedBooks, setParsedBooks] = useState(null)
+  const [parseError, setParseError] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadDone, setUploadDone] = useState(false)
+
+  function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setParsedBooks(null)
+    setParseError(null)
+    setUploadDone(false)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const books = parseExcelBooks(ev.target.result, printHouse.trim() || 'Ismeretlen')
+        setParsedBooks(books)
+      } catch (err) {
+        setParseError(err.message)
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  async function handleUpload() {
+    if (!parsedBooks || parsedBooks.length === 0) return
+    setUploading(true)
+    const house = parsedBooks[0].print_house
+
+    // Delete existing books for this print house first
+    const { error: delError } = await supabase
+      .from('books')
+      .delete()
+      .eq('print_house', house)
+    if (delError) { alert('Hiba törléskor: ' + delError.message); setUploading(false); return }
+
+    // Upload in batches of 50
+    const BATCH = 50
+    for (let i = 0; i < parsedBooks.length; i += BATCH) {
+      const { error } = await supabase.from('books').insert(parsedBooks.slice(i, i + BATCH))
+      if (error) { alert('Hiba feltöltéskor: ' + error.message); setUploading(false); return }
+    }
+
+    setUploading(false)
+    setUploadDone(true)
+    setParsedBooks(null)
+    // Reset file input
+    document.getElementById('excel-upload-input').value = ''
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+      <h3 className="font-bold text-gray-900 mb-1">Excel feltöltés</h3>
+      <p className="text-sm text-gray-500 mb-5">
+        Tölts fel egy új készletlistát. Az adott kiadóhoz tartozó összes könyv frissül.
+      </p>
+
+      <div className="flex flex-col gap-4">
+        {/* Print house */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Kiadó neve</label>
+          <input
+            type="text"
+            value={printHouse}
+            onChange={(e) => { setPrintHouse(e.target.value); setParsedBooks(null); setUploadDone(false) }}
+            placeholder="pl. OpenBooks"
+            className="w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900
+              focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
+          />
+        </div>
+
+        {/* File picker */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Excel fájl (.xlsx)</label>
+          <input
+            id="excel-upload-input"
+            type="file"
+            accept=".xlsx"
+            onChange={handleFile}
+            className="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4
+              file:rounded-lg file:border-0 file:text-sm file:font-medium
+              file:bg-[#C0392B] file:text-white hover:file:bg-[#A93226] cursor-pointer"
+          />
+        </div>
+
+        {/* Parse error */}
+        {parseError && (
+          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{parseError}</p>
+        )}
+
+        {/* Preview */}
+        {parsedBooks && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              {parsedBooks.length} könyvet találtunk a fájlban.
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              A feltöltés felülírja az összes meglévő <strong>{parsedBooks[0].print_house}</strong> könyvet.
+            </p>
+          </div>
+        )}
+
+        {/* Upload done */}
+        {uploadDone && (
+          <p className="text-sm text-green-700 bg-green-50 rounded-lg px-4 py-3">
+            ✓ Sikeresen feltöltve!
+          </p>
+        )}
+
+        {/* Upload button */}
+        {parsedBooks && (
+          <button
+            onClick={handleUpload}
+            disabled={uploading}
+            className="w-full py-3 rounded-lg bg-[#C0392B] text-white font-medium
+              hover:bg-[#A93226] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          >
+            {uploading ? 'Feltöltés...' : `${parsedBooks.length} könyv feltöltése`}
+          </button>
+        )}
       </div>
     </div>
   )
