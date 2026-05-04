@@ -1,6 +1,72 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from './supabase'
 
+const ADMIN_PASSWORD = 'ReBella2026!'
+
+function AdminPanel() {
+  const [input, setInput] = useState('')
+  const [unlocked, setUnlocked] = useState(false)
+  const [error, setError] = useState(false)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (input === ADMIN_PASSWORD) {
+      setUnlocked(true)
+      setError(false)
+    } else {
+      setError(true)
+      setInput('')
+    }
+  }
+
+  if (!unlocked) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 w-full max-w-sm">
+          <h2 className="text-lg font-bold text-gray-900 mb-1">Admin belépés</h2>
+          <p className="text-sm text-gray-500 mb-6">Add meg a jelszót a folytatáshoz.</p>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <input
+              type="password"
+              value={input}
+              onChange={(e) => { setInput(e.target.value); setError(false) }}
+              placeholder="Jelszó"
+              autoFocus
+              className={`w-full px-4 py-3 rounded-lg border bg-white text-gray-900
+                placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent
+                ${error ? 'border-red-400' : 'border-gray-300'}`}
+            />
+            {error && <p className="text-sm text-red-600">Hibás jelszó, próbáld újra.</p>}
+            <button
+              type="submit"
+              className="w-full py-3 rounded-lg bg-[#C0392B] text-white font-medium hover:bg-[#A93226] transition-colors"
+            >
+              Belépés
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-bold text-gray-900">Admin</h2>
+        <button
+          onClick={() => setUnlocked(false)}
+          className="text-sm text-gray-500 hover:text-gray-700"
+        >
+          Kilépés
+        </button>
+      </div>
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 text-center text-gray-400">
+        Hamarosan: könyv feltöltés és manuális hozzáadás.
+      </div>
+    </div>
+  )
+}
+
 function formatPrice(value) {
   if (value == null || isNaN(value)) return '—'
   return Math.round(value).toLocaleString('hu-HU') + ' Ft'
@@ -341,6 +407,14 @@ export default function App() {
             >
               Eladott könyvek ({soldList.length})
             </button>
+            <button
+              onClick={() => setTab('admin')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                tab === 'admin' ? 'bg-[#C0392B] text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              Admin
+            </button>
           </nav>
         </div>
       </header>
@@ -382,6 +456,7 @@ export default function App() {
             onClear={handleClear}
           />
         )}
+        {tab === 'admin' && <AdminPanel />}
       </main>
     </div>
   )
