@@ -4,6 +4,44 @@ import { supabase } from './supabase'
 
 const ADMIN_PASSWORD = 'ReBella2026!'
 
+const PRINT_HOUSES = [
+  'Open Books',
+  'Pagony',
+  'Gabo',
+  '10:40',
+  'Líra Könyv',
+  'Libri-Bookline',
+  'Libri Könyvkiadó',
+  'Alexandra Kiadó',
+  'Kossuth Kiadó',
+  'Magvető Kiadó',
+  'Helikon Kiadó',
+  'Európa Könyvkiadó',
+  'Jelenkor Kiadó',
+  'Park Könyvkiadó',
+  'Scolar Kiadó',
+  'Jaffa Kiadó',
+  'Kalligram Kiadó',
+  'Móra Kiadó',
+  'Kolibri Kiadó',
+  'Manó Könyvek',
+  'Pozsonyi Pagony',
+  'Csimota Könyvkiadó',
+  'HVG Kiadó',
+  'Medicina Könyvkiadó',
+  'Typotex Kiadó',
+  'Osiris Kiadó',
+  'Balassi Kiadó',
+  "L'Harmattan Kiadó",
+  'Corvina Kiadó',
+  'General Press',
+  'Saxum Kiadó',
+  'Gold Book Kiadó',
+  'Könyvmolyképző Kiadó',
+  'Napraforgó Kiadó',
+  'EGYÉB',
+]
+
 function parseExcelBooks(buffer, printHouse) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
   const ws = wb.Sheets['Aktuális készlet']
@@ -143,14 +181,16 @@ function ExcelUpload() {
         {/* Print house */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Kiadó neve</label>
-          <input
-            type="text"
+          <select
             value={printHouse}
             onChange={(e) => { setPrintHouse(e.target.value); setParsedBooks(null); setUploadDone(false) }}
-            placeholder="pl. OpenBooks"
             className="w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900
               focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
-          />
+          >
+            {PRINT_HOUSES.map((ph) => (
+              <option key={ph} value={ph}>{ph}</option>
+            ))}
+          </select>
         </div>
 
         {/* File picker */}
