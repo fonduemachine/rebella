@@ -478,6 +478,61 @@ function formatDiscount(value) {
   return Math.round(value * 100) + '%'
 }
 
+const FUN_FACTS = [
+  'A kenyér az egyik legrégebbi élelmiszer a világon',
+  'Az egyiptomiak sütötték az első kovászos kenyeret',
+  'A rozskenyér az északi hideg éghajlat miatt terjedt el Európában',
+  'A baguette árát törvény szabályozza Franciaországban',
+  'A ciabattát csak 1982-ben találták fel',
+  'A toast kenyér az 1920-as években jelent meg',
+  'A teljes kiőrlésű kenyér háromszor annyi rostot tartalmaz mint a fehér',
+  'A kovászos kenyér alacsonyabb glikémiás indexű mint a fehér kenyér',
+  'A kenyérpirítás csökkenti a glikémiás indexet',
+  'A bagel főzve majd sütve készül',
+  'A Dunakanyarnál a folyó közel 180 fokos kanyart tesz',
+  'A Dunakanyart a Börzsöny és a Visegrádi-hegység fogja közre',
+  'Visegrád a Dunakanyar egyik legikonikusabb városa',
+  'A római korban limes-erődök sorakoztak a Duna mentén',
+  'Zebegény közelében van a legszebb kilátópont a kanyarra',
+  'A Dunakanyar a nemzeti romantika kedvelt festészeti témája volt',
+  'A jégmadár a Duna egyik legszínpompásabb madara',
+  'A fehér gólya rendszeres fészkelő a Dunakanyar falvaiban',
+  'A fekete gólya zárt erdőkben költ a folyóvölgyek közelében',
+  'A nagy kócsag az ártereken halász',
+  'A kormorán kolóniái a Duna nagy fáin fészkelnek',
+  'A dankasirály a Dunán is költ nem csak tengerparton',
+  'A szürke gém magányosan és éjjel-nappal aktívan vadászik',
+  'A halászsas ritka vendég de időnként feltűnik a Dunakanyarban',
+  'A tőkés réce a leggyakoribb kacsafaj a Dunán',
+  'Az espresso neve olaszul gyorsan préselt vizet jelent',
+  'Az első kávéházat Konstantinápolyban nyitották 1475-ben',
+  'A kávébab botanikailag bogyónak számít nem babnak',
+  'Etiópia a kávé szülőhazája',
+  'A finnek isszák a legtöbb kávét fejenként a világon',
+  'A kávé a világ második legkereskedettebb árucikke az olaj után',
+  'A koffein 45 percen belül teljesen felszívódik a véráramba',
+  'A decaf kávé sem teljesen koffeintartalom-mentes',
+  'A cold brew kávét 12-24 óráig áztatják hideg vízben',
+  'A kapucsínó nevét a kapucinus szerzetesek barna csuhájáról kapta',
+  'A mocha névadója egy jemeni kikötőváros',
+  'A kávéfa 3-4 évig tart mire először terem',
+  'Egy csésze espressohoz kb. 50 kávébogyó kell',
+  'A robusta kétszer annyi koffeint tartalmaz mint az arabica',
+  'A vietnámi kávé jellegzetessége a sűrített tej',
+  'A bécsi kávéházi kultúra UNESCO örökség',
+  'A latte art az 1980-as években Seattle-ben terjedt el',
+  'A flat white Ausztráliából indult világhódító útjára',
+  'A kávé szó az arab qahwa kifejezésből ered',
+  'A réti sas a Duna mentén fészkel és halból él',
+  'A búbos vöcsök látványos nászjelzéseiről ismert a dunai tavakban',
+  'A nagy lilik és a vetési lúd télen tömegesen pihen a Duna homokpadjain',
+  'A fekete rigó a Dunakanyar erdőinek legdalosabb madara',
+]
+
+function randomFact() {
+  return FUN_FACTS[Math.floor(Math.random() * FUN_FACTS.length)]
+}
+
 function formatSoldDate(iso) {
   const d = new Date(iso)
   const pad = (n) => String(n).padStart(2, '0')
@@ -1032,7 +1087,11 @@ export default function App() {
             />
             <div className="mt-5 flex flex-col gap-4">
               {!debouncedQuery.trim() && (
-                <p className="text-center py-16 text-gray-400">Kezdj el gépelni egy könyv címét...</p>
+                <div className="text-center py-16 px-4">
+                  <p className="text-gray-300 text-xs uppercase tracking-widest mb-3">Tudtad?</p>
+                  <p className="text-gray-400 text-base italic">„{randomFact()}"</p>
+                  <p className="text-gray-300 text-sm mt-6">Kezdj el gépelni a kereséshez...</p>
+                </div>
               )}
               {debouncedQuery.trim() && filtered.length === 0 && (
                 <p className="text-center py-16 text-gray-400">Nem található könyv.</p>
