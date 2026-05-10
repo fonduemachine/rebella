@@ -981,7 +981,7 @@ export default function App() {
     <div className="min-h-screen bg-[#FAFAF7]">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-bold text-[#C0392B]">Rebella Könyvkészlet</h1>
+          <h1 className="text-xl font-bold text-[#C0392B]">a Rebella-ba Kft legnagyszerűbb fanti kis applikációja</h1>
           <nav className="mt-3 flex gap-1">
             <button
               onClick={() => setTab('search')}
