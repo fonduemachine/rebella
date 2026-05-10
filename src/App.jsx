@@ -123,6 +123,11 @@ function AdminPanel() {
       <ExcelUpload />
       <ManualBookAdd />
       <InventoryExport />
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <h3 className="font-bold text-gray-900 mb-1">Ötletdoboz / problémák</h3>
+        <p className="text-sm text-gray-500 mb-5">Piros = sürgős, sárga = közepes, zöld = alacsony prioritás.</p>
+        <IdeasAdmin />
+      </div>
     </div>
   )
 }
@@ -675,6 +680,160 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
   )
 }
 
+const PRIORITY_CONFIG = {
+  red:   { label: 'Sürgős',    bg: 'bg-red-100',    text: 'text-red-700',    dot: 'bg-red-500',    border: 'border-red-300',    order: 0 },
+  amber: { label: 'Közepes',   bg: 'bg-amber-100',  text: 'text-amber-700',  dot: 'bg-amber-400',  border: 'border-amber-300',  order: 1 },
+  green: { label: 'Alacsony',  bg: 'bg-green-100',  text: 'text-green-700',  dot: 'bg-green-500',  border: 'border-green-300',  order: 2 },
+}
+
+function IdeasTab() {
+  const [text, setText] = useState('')
+  const [priority, setPriority] = useState('amber')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!text.trim()) return
+    setSubmitting(true)
+    const { error } = await supabase.from('ideas').insert({ text: text.trim(), priority })
+    setSubmitting(false)
+    if (!error) { setText(''); setSubmitted(true); setTimeout(() => setSubmitted(false), 3000) }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <h2 className="font-bold text-gray-900 text-lg mb-1">Ötletdoboz / problémák</h2>
+        <p className="text-sm text-gray-500 mb-5">Írj le egy ötletet vagy problémát, és jelöld meg a prioritását.</p>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Írd le az ötletet vagy problémát..."
+            rows={4}
+            className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-900
+              placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
+          />
+
+          {/* Priority picker */}
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Prioritás</p>
+            <div className="flex gap-3">
+              {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setPriority(key)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
+                    ${priority === key ? `${cfg.bg} ${cfg.text} ${cfg.border}` : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                >
+                  <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot}`} />
+                  {cfg.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {submitted && <p className="text-sm text-green-700 bg-green-50 rounded-lg px-4 py-3">✓ Beküldve, köszönjük!</p>}
+
+          <button
+            type="submit"
+            disabled={submitting || !text.trim()}
+            className="w-full py-3 rounded-lg bg-[#C0392B] text-white font-medium
+              hover:bg-[#A93226] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          >
+            {submitting ? 'Beküldés...' : 'Beküldés'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function IdeasAdmin() {
+  const [ideas, setIdeas] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.from('ideas').select('*').order('created_at', { ascending: false })
+      .then(({ data }) => { if (data) setIdeas(data); setLoading(false) })
+  }, [])
+
+  // Real-time updates
+  useEffect(() => {
+    const channel = supabase.channel('ideas_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ideas' }, () => {
+        supabase.from('ideas').select('*').order('created_at', { ascending: false })
+          .then(({ data }) => { if (data) setIdeas(data) })
+      }).subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [])
+
+  async function toggleSolved(id, current) {
+    const { error } = await supabase.from('ideas').update({ solved: !current }).eq('id', id)
+    if (!error) setIdeas(prev => prev.map(i => i.id === id ? { ...i, solved: !current } : i))
+  }
+
+  async function removeIdea(id) {
+    const { error } = await supabase.from('ideas').delete().eq('id', id)
+    if (!error) setIdeas(prev => prev.filter(i => i.id !== id))
+  }
+
+  const sorted = [...ideas].sort((a, b) =>
+    (PRIORITY_CONFIG[a.priority]?.order ?? 9) - (PRIORITY_CONFIG[b.priority]?.order ?? 9)
+  )
+
+  if (loading) return <p className="text-sm text-gray-400 text-center py-6">Betöltés...</p>
+  if (sorted.length === 0) return <p className="text-sm text-gray-400 text-center py-6">Még nincs beküldött ötlet.</p>
+
+  return (
+    <div className="flex flex-col gap-3">
+      {sorted.map(idea => {
+        const cfg = PRIORITY_CONFIG[idea.priority] ?? PRIORITY_CONFIG.amber
+        return (
+          <div key={idea.id} className={`rounded-lg border p-4 ${idea.solved ? 'opacity-50' : ''} ${cfg.bg} ${cfg.border}`}>
+            <div className="flex items-start gap-3">
+              <span className={`mt-1.5 w-2.5 h-2.5 rounded-full shrink-0 ${cfg.dot}`} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm ${idea.solved ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                  {idea.text}
+                </p>
+                <div className="flex items-center gap-3 mt-2 flex-wrap">
+                  <span className={`text-xs font-medium ${cfg.text}`}>{cfg.label}</span>
+                  <span className="text-xs text-gray-400">
+                    {new Date(idea.created_at).toLocaleDateString('hu-HU')}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => toggleSolved(idea.id, idea.solved)}
+                  title={idea.solved ? 'Visszaállítás' : 'Megoldva'}
+                  className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors
+                    ${idea.solved
+                      ? 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                      : 'bg-white border-green-300 text-green-700 hover:bg-green-50'}`}
+                >
+                  {idea.solved ? 'Visszaállítás' : '✓ Megoldva'}
+                </button>
+                <button
+                  onClick={() => removeIdea(idea.id)}
+                  title="Törlés"
+                  className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  Törlés
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function App() {
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -841,6 +1000,14 @@ export default function App() {
               Eladott könyvek ({soldList.length})
             </button>
             <button
+              onClick={() => setTab('ideas')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                tab === 'ideas' ? 'bg-[#C0392B] text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              Ötletdoboz
+            </button>
+            <button
               onClick={() => setTab('admin')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 tab === 'admin' ? 'bg-[#C0392B] text-white' : 'text-gray-600 hover:bg-gray-100'
@@ -889,6 +1056,7 @@ export default function App() {
             onClear={handleClear}
           />
         )}
+        {tab === 'ideas' && <IdeasTab />}
         {tab === 'admin' && <AdminPanel />}
       </main>
     </div>
