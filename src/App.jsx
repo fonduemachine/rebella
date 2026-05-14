@@ -161,12 +161,17 @@ function ExcelUpload() {
     if (!parsedBooks || parsedBooks.length === 0) return
     setUploading(true)
 
+    // Deduplicate: if the Excel has duplicate termekkkod rows, keep the last one
+    const seen = new Map()
+    for (const book of parsedBooks) seen.set(book.termekkkod, book)
+    const deduped = Array.from(seen.values())
+
     // Upsert in batches of 50 — adds new books, updates existing ones
     const BATCH = 50
-    for (let i = 0; i < parsedBooks.length; i += BATCH) {
+    for (let i = 0; i < deduped.length; i += BATCH) {
       const { error } = await supabase
         .from('books')
-        .upsert(parsedBooks.slice(i, i + BATCH), { onConflict: 'termekkkod,print_house' })
+        .upsert(deduped.slice(i, i + BATCH), { onConflict: 'termekkkod,print_house' })
       if (error) { alert('Hiba feltöltéskor: ' + error.message); setUploading(false); return }
     }
 
