@@ -39,6 +39,7 @@ const PRINT_HOUSES = [
   'Gold Book Kiadó',
   'Könyvmolyképző Kiadó',
   'Napraforgó Kiadó',
+  'Book24',
   'EGYÉB',
 ]
 
@@ -74,6 +75,40 @@ function parseExcelBooks(buffer, printHouse) {
                            : null,
     print_house:         printHouse,
   }))
+}
+
+function parseCsvBooks(buffer, printHouse) {
+  // Decode buffer to string (handle UTF-8 BOM if present)
+  let text = new TextDecoder('utf-8').decode(buffer)
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1) // strip BOM
+
+  // Parse via SheetJS — row 0 is metadata junk, row 1 is the real header
+  const wb = XLSX.read(text, { type: 'string' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null })
+
+  return rows
+    .filter(r => r['cím'] != null && String(r['cím']).trim() !== '') // skip blank rows
+    .map(r => {
+      const ean = r['ISBN'] != null ? String(r['ISBN']).trim() : null
+      const rawKedv = r['kedvezmény']
+      const kedvezmeny = rawKedv != null && rawKedv !== '' ? Number(rawKedv) / 100 : null
+      return {
+        termekkkod:          makeCode(null, ean, r['cím'], printHouse),
+        ean,
+        szerzo:              r['szerző'] != null ? String(r['szerző']).trim() : null,
+        termeknev:           r['cím'] != null ? String(r['cím']).trim() : null,
+        akcio_keszlet:       0,
+        normal_keszlet:      r['mennyiség'] != null ? Number(r['mennyiség']) : 0,
+        fogy_ar:             r['fogyasztói áfás ár'] != null ? Number(r['fogyasztói áfás ár']) : null,
+        netto_ar:            null,
+        ob_netto_ar:         null,
+        kedvezmeny_szazalek: kedvezmeny,
+        kedvezmenyes_ar:     r['kedvezményes ár'] != null ? Number(r['kedvezményes ár']) : null,
+        arkototteg_lejar:    null,
+        print_house:         printHouse,
+      }
+    })
 }
 
 function AdminPanel() {
@@ -155,10 +190,14 @@ function ExcelUpload() {
     setParsedBooks(null)
     setParseError(null)
     setUploadDone(false)
+    const isCsv = file.name.toLowerCase().endsWith('.csv')
     const reader = new FileReader()
     reader.onload = (ev) => {
       try {
-        const books = parseExcelBooks(ev.target.result, printHouse.trim() || 'Ismeretlen')
+        const ph = printHouse.trim() || 'Ismeretlen'
+        const books = isCsv
+          ? parseCsvBooks(ev.target.result, ph)
+          : parseExcelBooks(ev.target.result, ph)
         setParsedBooks(books)
       } catch (err) {
         setParseError(err.message)
@@ -194,9 +233,9 @@ function ExcelUpload() {
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-      <h3 className="font-bold text-gray-900 mb-1">Excel feltöltés</h3>
+      <h3 className="font-bold text-gray-900 mb-1">Készlet feltöltése</h3>
       <p className="text-sm text-gray-500 mb-5">
-        Tölts fel egy új készletlistát. Az adott kiadóhoz tartozó összes könyv frissül.
+        Tölts fel egy új készletlistát (.xlsx vagy .csv). Az adott kiadóhoz tartozó könyvek frissülnek, újak hozzáadódnak.
       </p>
 
       <div className="flex flex-col gap-4">
@@ -217,11 +256,11 @@ function ExcelUpload() {
 
         {/* File picker */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Excel fájl (.xlsx)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Fájl feltöltése (.xlsx vagy .csv)</label>
           <input
             id="excel-upload-input"
             type="file"
-            accept=".xlsx"
+            accept=".xlsx,.csv"
             onChange={handleFile}
             className="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4
               file:rounded-lg file:border-0 file:text-sm file:font-medium
