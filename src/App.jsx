@@ -42,13 +42,23 @@ const PRINT_HOUSES = [
   'EGYÉB',
 ]
 
+function makeCode(termekkkod, ean, termeknev, printHouse) {
+  if (termekkkod != null && String(termekkkod).trim() !== '') return String(termekkkod).trim()
+  if (ean != null && String(ean).trim() !== '') return String(ean).trim()
+  // Fallback: stable synthetic key from title + print house
+  const slug = String(termeknev ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
+    .toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').substring(0, 60)
+  return `${printHouse}__${slug}`
+}
+
 function parseExcelBooks(buffer, printHouse) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
   const ws = wb.Sheets['Aktuális készlet']
   if (!ws) throw new Error('Nem található "Aktuális készlet" munkalap a fájlban.')
   const rows = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null })
   return rows.map(r => ({
-    termekkkod:          String(r['Termékkód'] ?? ''),
+    termekkkod:          makeCode(r['Termékkód'], r['EAN'], r['Terméknév'], printHouse),
     ean:                 r['EAN'] != null ? String(r['EAN']) : null,
     szerzo:              r['szerző'] ?? null,
     termeknev:           r['Terméknév'] ?? null,
