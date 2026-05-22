@@ -53,28 +53,81 @@ function makeCode(termekkkod, ean, termeknev, printHouse) {
   return `${printHouse}__${slug}`
 }
 
-function parseExcelBooks(buffer, printHouse) {
+// Returns list of sheet names in an xlsx buffer
+function getExcelSheets(buffer) {
+  const wb = XLSX.read(buffer, { type: 'array' })
+  return wb.SheetNames
+}
+
+// Detect which column format a sheet uses based on its header row
+// Returns 'ob' for OpenBooks format, 'idegen' for Book24/foreign format
+function detectSheetFormat(ws) {
+  const rows = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null, header: 1 })
+  if (!rows.length) return 'ob'
+  const headers = rows[0].map(h => String(h ?? '').toLowerCase())
+  if (headers.includes('cím') || headers.includes('isbn')) return 'idegen'
+  return 'ob'
+}
+
+function parseExcelBooks(buffer, printHouse, sheetName) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
-  const ws = wb.Sheets['Aktuális készlet']
-  if (!ws) throw new Error('Nem található "Aktuális készlet" munkalap a fájlban.')
+
+  // If no sheet specified, try 'Aktuális készlet' first, then first sheet
+  const targetSheet = sheetName
+    ?? (wb.SheetNames.includes('Aktuális készlet') ? 'Aktuális készlet' : wb.SheetNames[0])
+
+  const ws = wb.Sheets[targetSheet]
+  if (!ws) throw new Error(`Nem található "${targetSheet}" munkalap a fájlban.`)
+
+  const format = detectSheetFormat(ws)
+
+  if (format === 'idegen') {
+    // Book24 / foreign format: szerző, cím, kiadó, ISBN, fogyasztói áfás ár, kedvezmény, kedvezményes ár, mennyiség
+    const rows = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null })
+    return rows
+      .filter(r => r['cím'] != null && String(r['cím']).trim() !== '')
+      .map(r => {
+        const ean = r['ISBN'] != null ? String(r['ISBN']).trim() : null
+        const rawKedv = r['kedvezmény']
+        return {
+          termekkkod:          makeCode(null, ean, r['cím'], printHouse),
+          ean,
+          szerzo:              r['szerző'] != null ? String(r['szerző']).trim() : null,
+          termeknev:           r['cím'] != null ? String(r['cím']).trim() : null,
+          akcio_keszlet:       0,
+          normal_keszlet:      r['mennyiség'] != null ? Number(r['mennyiség']) : 0,
+          fogy_ar:             r['fogyasztói áfás ár'] != null ? Number(r['fogyasztói áfás ár']) : null,
+          netto_ar:            null,
+          ob_netto_ar:         null,
+          kedvezmeny_szazalek: rawKedv != null && rawKedv !== '' ? Number(rawKedv) / 100 : null,
+          kedvezmenyes_ar:     r['kedvezményes ár'] != null ? Number(r['kedvezményes ár']) : null,
+          arkototteg_lejar:    null,
+          print_house:         printHouse,
+        }
+      })
+  }
+
+  // Default: OB format
   const rows = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null })
-  return rows.map(r => ({
-    termekkkod:          makeCode(r['Termékkód'], r['EAN'], r['Terméknév'], printHouse),
-    ean:                 r['EAN'] != null ? String(r['EAN']) : null,
-    szerzo:              r['szerző'] ?? null,
-    termeknev:           r['Terméknév'] ?? null,
-    akcio_keszlet:       r['akciós készlet'] ?? 0,
-    normal_keszlet:      r['normál készlet'] ?? 0,
-    fogy_ar:             r['fogy.ár (5% áfás)'] ?? null,
-    netto_ar:            r['nettó ár'] ?? null,
-    ob_netto_ar:         r['árréssel csökentett nettó ár (OB-nak fizetendő)'] ?? null,
-    kedvezmeny_szazalek: r['javasolt kedvezmény vevőknek'] ?? null,
-    kedvezmenyes_ar:     r['javasolt kedvezményes, bolti áfás ár'] ?? null,
-    arkototteg_lejar:    r['árkötöttség lejár'] instanceof Date
-                           ? r['árkötöttség lejár'].toISOString().split('T')[0]
-                           : null,
-    print_house:         printHouse,
-  }))
+  return rows
+    .filter(r => r['Terméknév'] != null && String(r['Terméknév']).trim() !== '')
+    .map(r => ({
+      termekkkod:          makeCode(r['Termékkód'], r['EAN'], r['Terméknév'], printHouse),
+      ean:                 r['EAN'] != null ? String(r['EAN']) : null,
+      szerzo:              r['szerző'] ?? null,
+      termeknev:           r['Terméknév'] ?? null,
+      akcio_keszlet:       r['akciós készlet'] ?? 0,
+      normal_keszlet:      r['normál készlet'] ?? 0,
+      fogy_ar:             r['fogy.ár (5% áfás)'] ?? null,
+      netto_ar:            r['nettó ár'] ?? null,
+      ob_netto_ar:         r['árréssel csökentett nettó ár (OB-nak fizetendő)'] ?? null,
+      kedvezmeny_szazalek: r['javasolt kedvezmény vevőknek'] ?? null,
+      kedvezmenyes_ar:     r['javasolt kedvezményes, bolti áfás ár'] ?? null,
+      arkototteg_lejar:    r['árkötöttség lejár'] instanceof Date
+                             ? r['árkötöttség lejár'].toISOString().split('T')[0]
+                             : null,
+      print_house:         printHouse,
+    }))
 }
 
 function parseCsvBooks(buffer, printHouse) {
@@ -179,31 +232,69 @@ function AdminPanel() {
 
 function ExcelUpload() {
   const [printHouse, setPrintHouse] = useState('OpenBooks')
+  const [sheetNames, setSheetNames] = useState(null)   // null = not loaded yet
+  const [selectedSheet, setSelectedSheet] = useState(null)
+  const [fileBuffer, setFileBuffer] = useState(null)
+  const [isCsv, setIsCsv] = useState(false)
   const [parsedBooks, setParsedBooks] = useState(null)
   const [parseError, setParseError] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadDone, setUploadDone] = useState(false)
 
+  function resetState() {
+    setParsedBooks(null); setParseError(null); setUploadDone(false)
+    setSheetNames(null); setSelectedSheet(null); setFileBuffer(null); setIsCsv(false)
+  }
+
+  function parseSheet(buffer, sheet, ph, csv) {
+    try {
+      const books = csv
+        ? parseCsvBooks(buffer, ph)
+        : parseExcelBooks(buffer, ph, sheet)
+      setParsedBooks(books)
+      setParseError(null)
+    } catch (err) {
+      setParseError(err.message)
+      setParsedBooks(null)
+    }
+  }
+
   function handleFile(e) {
     const file = e.target.files[0]
     if (!file) return
-    setParsedBooks(null)
-    setParseError(null)
-    setUploadDone(false)
-    const isCsv = file.name.toLowerCase().endsWith('.csv')
+    resetState()
+    const csv = file.name.toLowerCase().endsWith('.csv')
+    setIsCsv(csv)
     const reader = new FileReader()
     reader.onload = (ev) => {
-      try {
-        const ph = printHouse.trim() || 'Ismeretlen'
-        const books = isCsv
-          ? parseCsvBooks(ev.target.result, ph)
-          : parseExcelBooks(ev.target.result, ph)
-        setParsedBooks(books)
-      } catch (err) {
-        setParseError(err.message)
+      const buf = ev.target.result
+      setFileBuffer(buf)
+      const ph = printHouse.trim() || 'Ismeretlen'
+      if (csv) {
+        parseSheet(buf, null, ph, true)
+      } else {
+        const sheets = getExcelSheets(buf)
+        if (sheets.length === 1 || sheets.includes('Aktuális készlet')) {
+          // Single sheet or old-format file — parse immediately
+          const sheet = sheets.includes('Aktuális készlet') ? 'Aktuális készlet' : sheets[0]
+          setSelectedSheet(sheet)
+          parseSheet(buf, sheet, ph, false)
+        } else {
+          // Multiple sheets — show selector
+          setSheetNames(sheets)
+          setSelectedSheet(sheets[0])
+          parseSheet(buf, sheets[0], ph, false)
+        }
       }
     }
     reader.readAsArrayBuffer(file)
+  }
+
+  function handleSheetChange(sheet) {
+    setSelectedSheet(sheet)
+    setParsedBooks(null)
+    const ph = printHouse.trim() || 'Ismeretlen'
+    parseSheet(fileBuffer, sheet, ph, false)
   }
 
   async function handleUpload() {
@@ -244,7 +335,13 @@ function ExcelUpload() {
           <label className="block text-sm font-medium text-gray-700 mb-1">Kiadó neve</label>
           <select
             value={printHouse}
-            onChange={(e) => { setPrintHouse(e.target.value); setParsedBooks(null); setUploadDone(false) }}
+            onChange={(e) => {
+              const ph = e.target.value
+              setPrintHouse(ph)
+              setParsedBooks(null)
+              setUploadDone(false)
+              if (fileBuffer) parseSheet(fileBuffer, selectedSheet, ph.trim() || 'Ismeretlen', isCsv)
+            }}
             className="w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900
               focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
           >
@@ -267,6 +364,21 @@ function ExcelUpload() {
               file:bg-[#C0392B] file:text-white hover:file:bg-[#A93226] cursor-pointer"
           />
         </div>
+
+        {/* Sheet selector — only shown for multi-sheet xlsx files */}
+        {sheetNames && sheetNames.length > 1 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Munkalap kiválasztása</label>
+            <select
+              value={selectedSheet ?? ''}
+              onChange={e => handleSheetChange(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-900
+                focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent"
+            >
+              {sheetNames.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Parse error */}
         {parseError && (
