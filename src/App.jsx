@@ -305,17 +305,36 @@ function ExcelUpload() {
     if (!parsedBooks || parsedBooks.length === 0) return
     setUploading(true)
 
-    // Deduplicate: if the Excel has duplicate termekkkod rows, keep the last one
+    // Deduplicate within the file: if duplicate termekkkod rows, keep the last one
     const seen = new Map()
     for (const book of parsedBooks) seen.set(book.termekkkod, book)
     const deduped = Array.from(seen.values())
 
-    // Upsert in batches of 50 — adds new books, updates existing ones
+    // Fetch existing books for this print_house so we can ADD stock instead of replace
+    const codes = deduped.map(b => b.termekkkod)
+    const { data: existing } = await supabase
+      .from('books')
+      .select('termekkkod, normal_keszlet, akcio_keszlet')
+      .eq('print_house', printHouse)
+      .in('termekkkod', codes)
+    const existingMap = new Map((existing ?? []).map(b => [b.termekkkod, b]))
+
+    // Merge: add new stock on top of existing stock (each upload = new delivery)
+    const merged = deduped.map(book => {
+      const prev = existingMap.get(book.termekkkod)
+      return {
+        ...book,
+        normal_keszlet: (prev?.normal_keszlet ?? 0) + (book.normal_keszlet ?? 0),
+        akcio_keszlet:  (prev?.akcio_keszlet  ?? 0) + (book.akcio_keszlet  ?? 0),
+      }
+    })
+
+    // Upsert in batches of 50
     const BATCH = 50
-    for (let i = 0; i < deduped.length; i += BATCH) {
+    for (let i = 0; i < merged.length; i += BATCH) {
       const { error } = await supabase
         .from('books')
-        .upsert(deduped.slice(i, i + BATCH), { onConflict: 'termekkkod,print_house' })
+        .upsert(merged.slice(i, i + BATCH), { onConflict: 'termekkkod,print_house' })
       if (error) { alert('Hiba feltöltéskor: ' + error.message); setUploading(false); return }
     }
 
@@ -1112,22 +1131,13 @@ export default function App() {
     return () => supabase.removeChannel(channel)
   }, [])
 
-  const bookMap = useMemo(() => {
-    const m = new Map()
-    for (const b of books) m.set(b.termekkkod, b)
-    return m
-  }, [books])
-
   const soldCounts = useMemo(() => {
     const map = new Map()
     for (const item of soldList) {
-      const book = bookMap.get(item.termekkkod)
-      // Only count sales that happened after the last restock
-      if (book?.stocked_at && item.eladva_datum < book.stocked_at) continue
       map.set(item.termekkkod, (map.get(item.termekkkod) ?? 0) + 1)
     }
     return map
-  }, [soldList, bookMap])
+  }, [soldList])
 
   const filtered = useMemo(() => {
     if (!debouncedQuery.trim()) return []
