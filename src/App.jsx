@@ -804,7 +804,7 @@ function BookCard({ book, soldCount, onSell }) {
           className="text-sm font-medium px-4 py-2 rounded-lg transition-colors
             bg-[#C0392B] text-white hover:bg-[#A93226] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
         >
-          Eladva
+          Eladás
         </button>
         {soldCount > 0 && (
           <span className="text-sm text-gray-500">{soldCount} db eladva</span>
