@@ -103,11 +103,13 @@ function parseExcelBooks(buffer, printHouse, sheetName) {
           kedvezmenyes_ar:     r['kedvezményes ár'] != null ? Number(r['kedvezményes ár']) : null,
           arkototteg_lejar:    null,
           print_house:         printHouse,
+          stocked_at:          new Date().toISOString(),
         }
       })
   }
 
   // Default: OB format
+  const now = new Date().toISOString()
   const rows = XLSX.utils.sheet_to_json(ws, { range: 1, defval: null })
   return rows
     .filter(r => r['Terméknév'] != null && String(r['Terméknév']).trim() !== '')
@@ -127,6 +129,7 @@ function parseExcelBooks(buffer, printHouse, sheetName) {
                              ? r['árkötöttség lejár'].toISOString().split('T')[0]
                              : null,
       print_house:         printHouse,
+      stocked_at:          now,
     }))
 }
 
@@ -160,6 +163,7 @@ function parseCsvBooks(buffer, printHouse) {
         kedvezmenyes_ar:     r['kedvezményes ár'] != null ? Number(r['kedvezményes ár']) : null,
         arkototteg_lejar:    null,
         print_house:         printHouse,
+        stocked_at:          new Date().toISOString(),
       }
     })
 }
@@ -458,6 +462,7 @@ function ManualBookAdd() {
       kedvezmenyes_ar:     form.kedvezmenyes_ar !== '' ? Number(form.kedvezmenyes_ar) : null,
       arkototteg_lejar:    form.arkototteg_lejar || null,
       print_house:         form.print_house,
+      stocked_at:          new Date().toISOString(),
     }, { onConflict: 'termekkkod,print_house' })
     setSaving(false)
     if (error) { setError(error.message); return }
@@ -1107,9 +1112,18 @@ export default function App() {
     return () => supabase.removeChannel(channel)
   }, [])
 
+  const bookMap = useMemo(() => {
+    const m = new Map()
+    for (const b of books) m.set(b.termekkkod, b)
+    return m
+  }, [books])
+
   const soldCounts = useMemo(() => {
     const map = new Map()
     for (const item of soldList) {
+      const book = bookMap.get(item.termekkkod)
+      // Only count sales that happened after the last restock
+      if (book?.stocked_at && item.eladva_datum < book.stocked_at) continue
       map.set(item.termekkkod, (map.get(item.termekkkod) ?? 0) + 1)
     }
     return map
