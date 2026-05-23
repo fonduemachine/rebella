@@ -442,10 +442,12 @@ function ManualBookAdd() {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.termeknev.trim()) { setError('A könyv címe kötelező.'); return }
-    if (!form.termekkkod.trim()) { setError('A termékkód kötelező.'); return }
     setSaving(true)
+    // If no termekkkod given, auto-generate from title (same as Excel import)
+    const resolvedCode = form.termekkkod.trim()
+      || makeCode(null, form.ean.trim() || null, form.termeknev.trim(), form.print_house)
     const { error } = await supabase.from('books').upsert({
-      termekkkod:          form.termekkkod.trim(),
+      termekkkod:          resolvedCode,
       ean:                 form.ean.trim() || null,
       szerzo:              form.szerzo.trim() || null,
       termeknev:           form.termeknev.trim(),
@@ -495,8 +497,8 @@ function ManualBookAdd() {
         {/* Termékkód + EAN */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelClass}>Termékkód *</label>
-            <input type="text" value={form.termekkkod} onChange={e => set('termekkkod', e.target.value)} className={inputClass} placeholder="pl. O15724734" />
+            <label className={labelClass}>Termékkód <span className="font-normal text-gray-400">(ha nincs, auto-generálódik)</span></label>
+            <input type="text" value={form.termekkkod} onChange={e => set('termekkkod', e.target.value)} className={inputClass} placeholder="pl. O15724734 — hagyd üresen ha nincs" />
           </div>
           <div>
             <label className={labelClass}>EAN</label>
