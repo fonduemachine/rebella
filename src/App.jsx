@@ -816,6 +816,7 @@ function BookCard({ book, soldCount, onSell }) {
 
 function SoldTable({ soldList, onUndo, onExport, onClear }) {
   const [filterHouse, setFilterHouse] = useState('Összes')
+  const [search, setSearch] = useState('')
 
   // Build list of print houses that actually appear in sold books
   const presentHouses = useMemo(() => {
@@ -823,10 +824,21 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
     return ['Összes', ...Array.from(set).sort()]
   }, [soldList])
 
-  const filtered = useMemo(() =>
-    filterHouse === 'Összes' ? soldList : soldList.filter(i => i.print_house === filterHouse),
-    [soldList, filterHouse]
-  )
+  const filtered = useMemo(() => {
+    let list = filterHouse === 'Összes' ? soldList : soldList.filter(i => i.print_house === filterHouse)
+    if (search.trim()) {
+      const q = search.toLowerCase().trim()
+      list = list.filter(i =>
+        (i.termeknev || '').toLowerCase().includes(q) ||
+        (i.szerzo || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [soldList, filterHouse, search])
+
+  function handleUndo(id, title) {
+    if (window.confirm(`Biztos hogy visszavonod?\n\n„${title}"`)) onUndo(id)
+  }
 
   if (soldList.length === 0) {
     return (
@@ -838,6 +850,16 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
 
   return (
     <div>
+      {/* Search */}
+      <input
+        type="text"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Keresés cím vagy szerző alapján..."
+        className="w-full px-4 py-2.5 mb-4 rounded-lg border border-gray-300 bg-white text-gray-900
+          placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#C0392B] focus:border-transparent text-sm"
+      />
+
       {/* Filter + actions row */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <select
@@ -868,7 +890,7 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
       </div>
 
       {filtered.length === 0 && (
-        <p className="text-center py-10 text-gray-400">Nincs eladott könyv ennél a kiadónál.</p>
+        <p className="text-center py-10 text-gray-400">Nincs találat.</p>
       )}
 
       {/* Mobile cards */}
@@ -883,7 +905,7 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
               <span>Ár: {formatPrice(item.kedvezmenyes_ar)}</span>
             </div>
             <p className="text-xs text-gray-400 mt-1">{formatSoldDate(item.eladva_datum)}</p>
-            <button onClick={() => onUndo(item.id)} className="mt-2 text-sm text-red-600 hover:text-red-800">
+            <button onClick={() => handleUndo(item.id, item.termeknev)} className="mt-2 text-sm text-red-600 hover:text-red-800">
               Visszavonás
             </button>
           </div>
@@ -914,7 +936,7 @@ function SoldTable({ soldList, onUndo, onExport, onClear }) {
                 <td className="py-3 pr-4 text-right font-medium text-gray-900">{formatPrice(item.kedvezmenyes_ar)}</td>
                 <td className="py-3 pr-4 text-gray-500">{formatSoldDate(item.eladva_datum)}</td>
                 <td className="py-3">
-                  <button onClick={() => onUndo(item.id)} className="text-red-600 hover:text-red-800">
+                  <button onClick={() => handleUndo(item.id, item.termeknev)} className="text-red-600 hover:text-red-800">
                     Visszavonás
                   </button>
                 </td>
