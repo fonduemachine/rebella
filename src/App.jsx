@@ -1127,7 +1127,7 @@ export default function App() {
       map.set(item.termekkkod, (map.get(item.termekkkod) ?? 0) + 1)
     }
     return map
-  }, [soldList])
+  }, [soldList, bookMap])
 
   const filtered = useMemo(() => {
     if (!debouncedQuery.trim()) return []
